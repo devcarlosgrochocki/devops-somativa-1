@@ -21,3 +21,33 @@ jobs:
       - run: dotnet restore Temperaturas.sln
       - run: dotnet build Temperaturas.sln --configuration Release --no-restore
       - run: dotnet test Temperaturas.sln --configuration Release --no-build --no-restore
+
+  delivery:
+    name: CD - prepare release
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build and verify Docker image
+        run: |
+          docker build -t temperaturas-api:ci .
+          docker run -d --name temperaturas-api -p 8080:8080 temperaturas-api:ci
+          for attempt in {1..10}; do
+            if curl --fail --silent 'http://localhost:8080/converter?celsius=25' | grep -q '"fahrenheit":77'; then
+              docker ps
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs temperaturas-api
+          exit 1
+      - name: Publish application
+        run: dotnet publish src/Temperaturas.Api/Temperaturas.Api.csproj --configuration Release -o publish
+      - uses: actions/upload-artifact@v7
+        with:
+          name: temperaturas-api
+          path: publish/
+          if-no-files-found: error
