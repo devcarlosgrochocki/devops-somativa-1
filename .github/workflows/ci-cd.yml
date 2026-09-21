@@ -51,3 +51,40 @@ jobs:
           name: temperaturas-api
           path: publish/
           if-no-files-found: error
+
+  notify:
+    name: Alert - Telegram notification
+    needs: [ci, delivery]
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Send workflow result to Telegram
+        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
+        env:
+          CI_RESULT: ${{ needs.ci.result }}
+          DELIVERY_RESULT: ${{ needs.delivery.result }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$CI_RESULT" = "success" ] && [ "$DELIVERY_RESULT" = "success" ]; then
+            STATUS="sucesso"
+          else
+            STATUS="falha"
+          fi
+
+          MESSAGE="CI/CD concluído com ${STATUS} na PR #${PR_NUMBER} (${HEAD_BRANCH}) do repositório ${REPOSITORY}. Testes: ${CI_RESULT}. ${RUN_URL}"
+          curl --fail --silent --show-error \
+            --request POST \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${MESSAGE}" \
+            --data-urlencode "disable_web_page_preview=true" \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+
+      - name: Report missing Telegram configuration
+        if: ${{ env.TELEGRAM_BOT_TOKEN == '' || env.TELEGRAM_CHAT_ID == '' }}
+        run: echo "Telegram alert skipped because TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not configured."
